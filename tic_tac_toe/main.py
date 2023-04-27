@@ -1,5 +1,4 @@
 """A tic-tac-toe game built with Python and Tkinter."""
-from copy import deepcopy
 from itertools import cycle
 import tkinter as tk
 from tkinter import font
