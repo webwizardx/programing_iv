@@ -20,26 +20,30 @@ class Move(NamedTuple):
 
 
 BOARD_SIZE = 3
-DEFAULT_PLAYERS = (
-    Player(label="X", color="blue", score=-10),
-    Player(label="O", color="green", score=10, is_human=False),
-)
 
 
 class TicTacToeGame:
-    def __init__(self, players: List[Player] = DEFAULT_PLAYERS, board_size=BOARD_SIZE, is_debug=False):
+    def __init__(self, board_size=BOARD_SIZE, is_debug=False, is_human=True):
         self.score_table = {}
-        self._default_players = players
-        self._players = cycle(players)
+        self._default_players = (Player(label="X", color="blue", score=-10),
+                                 Player(label="O", color="green", score=10, is_human=False))
         self.board_size = board_size
-        self.current_player = next(self._players)
         self.winner_combo = []
         self._current_moves = []
         self._has_winner = False
         self._winning_combos = []
         self._is_debug = is_debug
+        self.set_players(is_human=is_human)
         self._setup_board()
-        self._setup_score_table(players)
+        self._setup_score_table(self._default_players)
+
+    def set_players(self, is_human=True):
+        if is_human:
+            self._players = cycle(self._default_players)
+            self.current_player = next(self._players)
+        else:
+            self._players = cycle(self._default_players[::-1])
+            self.current_player = next(self._players)
 
     def _setup_board(self):
         self._current_moves = [
@@ -102,9 +106,7 @@ class TicTacToeGame:
         return bestMove
 
     def _minimax(self, depth=0, alpha=float('-inf'), beta=float('inf'), is_maximizing=False):
-        if self.is_tied(self._current_moves):
-            return 0
-        elif self._check_winning(self._current_moves):
+        if self._check_winning(self._current_moves):
             if is_maximizing:
                 temp = self.score_table['X'] + depth
                 self.logger(
@@ -115,6 +117,10 @@ class TicTacToeGame:
                 self.logger(
                     f'Depth: {depth}, score: {temp}, isMaximizing: {is_maximizing}')
                 return self.score_table['O'] - depth
+        elif self.is_tied(self._current_moves):
+            self.logger(
+                f'Depth: {depth}, score: {0}, Tied')
+            return 0
         depth += 1
 
         if is_maximizing:
@@ -185,8 +191,14 @@ class TicTacToeGame:
                 row_content[col] = Move(row, col)
         self._has_winner = False
         self.winner_combo = []
-        self._players = cycle(self._default_players)
-        self.current_player = next(self._players)
+
+    def new_game_player(self):
+        self.set_players()
+        self.reset_game()
+
+    def new_game_computer(self):
+        self.set_players(is_human=False)
+        self.reset_game()
 
     def logger(self, data):
         if self._is_debug:
@@ -203,14 +215,16 @@ class TicTacToeBoard(tk.Tk):
         self._create_menu()
         self._create_board_display()
         self._create_board_grid()
-        if not self._game.current_player.is_human:
-            self._computer_play()
 
     def _create_menu(self):
         menu_bar = tk.Menu(master=self)
         self.config(menu=menu_bar)
         file_menu = tk.Menu(master=menu_bar)
-        file_menu.add_command(label="Play Again", command=self.reset_board)
+        file_menu.add_command(label="New Game (Human first)",
+                              command=lambda: self.reset_board(True))
+        file_menu.add_separator()
+        file_menu.add_command(
+            label="New Game (Computer first)", command=lambda: self.reset_board(False))
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=quit)
         menu_bar.add_cascade(label="File", menu=file_menu)
@@ -300,9 +314,12 @@ class TicTacToeBoard(tk.Tk):
             if coordinates in self._game.winner_combo:
                 button.config(highlightbackground="red")
 
-    def reset_board(self):
+    def reset_board(self, is_human: bool):
         """Reset the game's board to play again."""
-        self._game.reset_game()
+        if is_human:
+            self._game.new_game_player()
+        else:
+            self._game.new_game_computer()
         self._update_display(msg="Ready?")
         for button in self._cells.keys():
             button.config(highlightbackground="lightblue")
@@ -321,20 +338,25 @@ class TicTacToeBoard(tk.Tk):
             [Move(1, 0, ''), Move(1, 1, ''), Move(1, 2, 'X')],
             [Move(2, 0, 'O'), Move(2, 1, 'O'), Move(2, 2, 'X')]
         ] """
-        board = [
+        """ board = [
             [Move(0, 0, 'O'), Move(0, 1, 'O'), Move(0, 2, 'X')],
             [Move(1, 0, 'X'), Move(1, 1, ''), Move(1, 2, '')],
             [Move(2, 0, ''), Move(2, 1, 'O'), Move(2, 2, 'X')]
+        ] """
+        board = [
+            [Move(0, 0, 'X'), Move(0, 1, 'O'), Move(0, 2, 'X')],
+            [Move(1, 0, ''), Move(1, 1, 'O'), Move(1, 2, '')],
+            [Move(2, 0, 'O'), Move(2, 1, 'X'), Move(2, 2, 'X')]
         ]
         self._game._current_moves = board
-        self._game.toggle_player()
-
         for row in range(self._game.board_size):
             for move in board[row]:
                 if move.label != '':
                     button = self._inverted_cells[(move.row, move.col)]
                     self._update_button(
                         button, label=move.label, color=colors[move.label])
+        if not self._game.current_player.is_human:
+            self._computer_play()
 
 
 def main():
