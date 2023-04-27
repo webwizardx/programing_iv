@@ -1,7 +1,7 @@
 """A tic-tac-toe game built with Python and Tkinter."""
-
-import tkinter as tk
+from copy import deepcopy
 from itertools import cycle
+import tkinter as tk
 from tkinter import font
 from typing import List, NamedTuple
 
@@ -9,6 +9,7 @@ from typing import List, NamedTuple
 class Player(NamedTuple):
     label: str
     color: str
+    score: int
     is_human: bool = True
 
 
@@ -20,13 +21,15 @@ class Move(NamedTuple):
 
 BOARD_SIZE = 3
 DEFAULT_PLAYERS = (
-    Player(label="X", color="blue"),
-    Player(label="O", color="green", is_human=False),
+    Player(label="X", color="blue", score=-10),
+    Player(label="O", color="green", score=10, is_human=False),
 )
 
 
 class TicTacToeGame:
-    def __init__(self, players: List[Player] = DEFAULT_PLAYERS, board_size=BOARD_SIZE):
+    def __init__(self, players: List[Player] = DEFAULT_PLAYERS, board_size=BOARD_SIZE, is_debug=False):
+        self.score_table = {}
+        self._default_players = players
         self._players = cycle(players)
         self.board_size = board_size
         self.current_player = next(self._players)
@@ -34,7 +37,9 @@ class TicTacToeGame:
         self._current_moves = []
         self._has_winner = False
         self._winning_combos = []
+        self._is_debug = is_debug
         self._setup_board()
+        self._setup_score_table(players)
 
     def _setup_board(self):
         self._current_moves = [
@@ -42,6 +47,9 @@ class TicTacToeGame:
             for row in range(self.board_size)
         ]
         self._winning_combos = self._get_winning_combos()
+
+    def _setup_score_table(self, players: List[Player]):
+        self.score_table = {player.label: player.score for player in players}
 
     def _get_winning_combos(self):
         rows = [
@@ -64,41 +72,107 @@ class TicTacToeGame:
         """Process the current move and check if it's a win."""
         row, col = move.row, move.col
         self._current_moves[row][col] = move
-        self._check_winning()
+        combo = self._check_winning()
+        if combo:
+            self._has_winner = True
+            self.winner_combo = combo
 
     def _process_computer_move(self):
-        print('Computer generated move')
-        possible_moves = [
-            move for row in self._current_moves
-            for move in row
-            if move.label == ''
-        ]
-        move = possible_moves[0]
-        self._current_moves[move.row][move.col] = Move(
-            move.row, move.col,  self.current_player.label)
-        self._check_winning()
-        return move
+        bestScore = float('-inf')
+        bestMove = None
+        for row in self._current_moves:
+            for move in row:
+                if move.label == '':
+                    self._current_moves[move.row][move.col] = Move(
+                        move.row, move.col, 'O')
+                    self.logger(f'PARENT -> x: {move.row}, y: {move.col}')
+                    score = self._minimax()
+                    self._current_moves[move.row][move.col] = Move(
+                        move.row, move.col, '')
+                    if score > bestScore:
+                        bestScore = score
+                        bestMove = move
+
+        self._current_moves[bestMove.row][bestMove.col] = Move(
+            bestMove.row, bestMove.col, 'O')
+        combo = self._check_winning()
+        if combo:
+            self._has_winner = True
+            self.winner_combo = combo
+        return bestMove
+
+    def _minimax(self, depth=0, alpha=float('-inf'), beta=float('inf'), is_maximizing=False):
+        if self.is_tied(self._current_moves):
+            return 0
+        elif self._check_winning(self._current_moves):
+            if is_maximizing:
+                temp = self.score_table['X'] + depth
+                self.logger(
+                    f'Depth: {depth}, score: {temp}, isMaximizing: {is_maximizing}')
+                return self.score_table['X'] + depth
+            else:
+                temp = self.score_table['O'] - depth
+                self.logger(
+                    f'Depth: {depth}, score: {temp}, isMaximizing: {is_maximizing}')
+                return self.score_table['O'] - depth
+        depth += 1
+
+        if is_maximizing:
+            bestScore = float('-inf')
+            for row in self._current_moves:
+                for move in row:
+                    if move.label == '':
+                        self._current_moves[move.row][move.col] = Move(
+                            move.row, move.col, 'O')
+                        self.logger(
+                            f'IS_MAXIMAZING -> x: {move.row}, y: {move.col}')
+                        score = self._minimax(depth, alpha, beta, False)
+                        self._current_moves[move.row][move.col] = Move(
+                            move.row, move.col, '')
+                        bestScore = max(score, bestScore)
+                        alpha = max(alpha, score)
+                        if beta <= alpha:
+                            return bestScore
+            return bestScore
+        else:
+            bestScore = float('inf')
+            for row in self._current_moves:
+                for move in row:
+                    if move.label == '':
+                        self._current_moves[move.row][move.col] = Move(
+                            move.row, move.col, 'X')
+                        self.logger(
+                            f'NOT_IS_MAXIMAZING -> x: {move.row}, y: {move.col}')
+                        score = self._minimax(depth, alpha, beta, True)
+                        self._current_moves[move.row][move.col] = Move(
+                            move.row, move.col, '')
+                        bestScore = min(score, bestScore)
+                        beta = min(beta, score)
+                        if beta <= alpha:
+                            return bestScore
+            return bestScore
 
     def has_winner(self):
         """Return True if the game has a winner, and False otherwise."""
         return self._has_winner
 
-    def is_tied(self):
+    def is_tied(self, current_moves: List[List[Move]] = None):
         """Return True if the game is tied, and False otherwise."""
         no_winner = not self._has_winner
+        current_moves = current_moves or self._current_moves
         played_moves = (
-            move.label for row in self._current_moves for move in row
+            move.label for row in current_moves for move in row
         )
         return no_winner and all(played_moves)
 
-    def _check_winning(self):
+    def _check_winning(self, current_moves: List[List[Move]] = None):
+        current_moves = current_moves or self._current_moves
         for combo in self._winning_combos:
-            results = set(self._current_moves[n][m].label for n, m in combo)
+            results = set(current_moves[n][m].label for n, m in combo)
             is_win = (len(results) == 1) and ("" not in results)
             if is_win:
-                self._has_winner = True
-                self.winner_combo = combo
-                break
+                return combo
+        return
 
     def toggle_player(self):
         """Return a toggled player."""
@@ -111,6 +185,12 @@ class TicTacToeGame:
                 row_content[col] = Move(row, col)
         self._has_winner = False
         self.winner_combo = []
+        self._players = cycle(self._default_players)
+        self.current_player = next(self._players)
+
+    def logger(self, data):
+        if self._is_debug:
+            print(data)
 
 
 class TicTacToeBoard(tk.Tk):
@@ -123,6 +203,8 @@ class TicTacToeBoard(tk.Tk):
         self._create_menu()
         self._create_board_display()
         self._create_board_grid()
+        if not self._game.current_player.is_human:
+            self._computer_play()
 
     def _create_menu(self):
         menu_bar = tk.Menu(master=self)
@@ -203,9 +285,11 @@ class TicTacToeBoard(tk.Tk):
             msg = f"{self._game.current_player.label}'s turn"
             self._update_display(msg)
 
-    def _update_button(self, clicked_btn):
-        clicked_btn.config(text=self._game.current_player.label)
-        clicked_btn.config(fg=self._game.current_player.color)
+    def _update_button(self, clicked_btn, label: str = None, color: str = None):
+        label = label or self._game.current_player.label
+        color = color or self._game.current_player.color
+        clicked_btn.config(text=label)
+        clicked_btn.config(fg=color)
 
     def _update_display(self, msg, color="black"):
         self.display["text"] = msg
@@ -224,6 +308,33 @@ class TicTacToeBoard(tk.Tk):
             button.config(highlightbackground="lightblue")
             button.config(text="")
             button.config(fg="black")
+        if not self._game.current_player.is_human:
+            self._computer_play()
+
+    def set_test_board(self):
+        colors = {
+            'O': 'green',
+            'X': 'blue'
+        }
+        """ board = [
+            [Move(0, 0, ''), Move(0, 1, 'X'), Move(0, 2, '')],
+            [Move(1, 0, ''), Move(1, 1, ''), Move(1, 2, 'X')],
+            [Move(2, 0, 'O'), Move(2, 1, 'O'), Move(2, 2, 'X')]
+        ] """
+        board = [
+            [Move(0, 0, 'O'), Move(0, 1, 'O'), Move(0, 2, 'X')],
+            [Move(1, 0, 'X'), Move(1, 1, ''), Move(1, 2, '')],
+            [Move(2, 0, ''), Move(2, 1, 'O'), Move(2, 2, 'X')]
+        ]
+        self._game._current_moves = board
+        self._game.toggle_player()
+
+        for row in range(self._game.board_size):
+            for move in board[row]:
+                if move.label != '':
+                    button = self._inverted_cells[(move.row, move.col)]
+                    self._update_button(
+                        button, label=move.label, color=colors[move.label])
 
 
 def main():
